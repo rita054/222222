@@ -339,9 +339,6 @@ if get_recommendations:
             <span class="song-title">{song}</span>
             <span style="color: #9CA3AF; margin: 0 8px">|</span>
             <span class="song-artist">{artist}</span>
-            <span style="float: right; color: #6B7280; font-size: 0.9em;">
-                Similarity: {sim:.2%}
-            </span>
         </div>
         """, unsafe_allow_html=True)
 
