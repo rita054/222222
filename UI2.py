@@ -145,18 +145,47 @@ def load_song_probabilities():
         return None, f"找不到資料檔：{data_file}"
     try:
         df = pd.read_csv(data_file)
+
         needed = ["artist", "song", "Q1_prob", "Q2_prob", "Q3_prob", "Q4_prob"]
         missing = [c for c in needed if c not in df.columns]
         if missing:
             return None, f"資料檔缺少欄位：{missing}"
-        # 統一把四個prob轉成float 0~1
-        for c in ["Q1_prob","Q2_prob","Q3_prob","Q4_prob"]:
-            df[c] = df[c].apply(parse_prob)
+
+        # ✅超強健：把各種格式都轉成0~1 float
+        def to_float01(series: pd.Series) -> pd.Series:
+            s = series.astype(str).str.strip()
+            # 把百分比字串轉掉
+            is_pct = s.str.endswith("%")
+            s2 = s.str.replace("%", "", regex=False)
+            # 轉數字（轉不了變NaN）
+            x = pd.to_numeric(s2, errors="coerce")
+            # 如果原本是百分比字串 -> 除以100
+            x = np.where(is_pct, x / 100.0, x)
+            x = pd.Series(x)
+
+            # 可能有人存成 0~100 但沒%（例如 51.1）
+            x = x.where(x <= 1.0, x / 100.0)
+
+            # NaN補0
+            return x.fillna(0.0)
+
+        for c in ["Q1_prob", "Q2_prob", "Q3_prob", "Q4_prob"]:
+            df[c] = to_float01(df[c])
+
         if "popularity" not in df.columns:
             df["popularity"] = 0
+
+        # ✅保護機制：如果轉完幾乎全是0，直接回報（避免similarity全0）
+        mat = df[["Q1_prob", "Q2_prob", "Q3_prob", "Q4_prob"]].to_numpy(dtype=float)
+        row_sum = mat.sum(axis=1)
+        zero_ratio = float((row_sum == 0).mean())
+        if zero_ratio > 0.1:  # 超過10%歌曲是全0向量，代表資料格式很可能不對
+            return None, f"情緒機率欄位有大量無法轉成數字（全0比例={zero_ratio:.1%}）。請檢查csv的Q1_prob~Q4_prob格式。"
+
         return df, None
     except Exception as e:
         return None, f"讀取資料失敗：{e}"
+
 
 def user_text_to_q_vector(user_text: str, vectorizer, clf, stop_words: set) -> np.ndarray:
     if vectorizer is None or clf is None or stop_words is None:
@@ -273,7 +302,7 @@ if get_recommendations:
             "Q3": "Sad/Painful",
             "Q4": "Relaxed/Calm"
         }
-        display_scenario = f"Your Mood ({emotion_names.get(pred_emotion, pred_emotion)})"
+        display_scenario = f"Your Mood"
 
 
     rec = recommend_songs(df, q, top_n=15, max_per_artist=2)
